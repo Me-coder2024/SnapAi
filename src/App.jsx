@@ -189,6 +189,7 @@ function App() {
 
     // Waitlist toggle — now synced via Supabase settings
     const [showWaitlist, setShowWaitlist] = useState(false)
+    const [loadingSettings, setLoadingSettings] = useState(true)
 
     // Tools — loaded from Supabase
     const [tools, setTools] = useState(DEFAULT_TOOLS)
@@ -212,8 +213,14 @@ function App() {
         }
 
         const loadSettings = async () => {
-            const { data } = await _sb.from('settings').select('value').eq('key', 'waitlist_active').single()
-            if (data) setShowWaitlist(data.value === 'true')
+            try {
+                const { data } = await _sb.from('settings').select('value').eq('key', 'waitlist_active').single()
+                if (data) setShowWaitlist(data.value === 'true')
+            } catch (err) {
+                console.error("Error loading settings:", err)
+            } finally {
+                setLoadingSettings(false)
+            }
         }
 
         loadTools()
@@ -240,6 +247,11 @@ function App() {
             _sb.removeChannel(settingsChannel)
         }
     }, [])
+
+    // Block rendering until we know if we should show the waitlist
+    if (loadingSettings) {
+        return <div style={{ background: '#030305', minHeight: '100vh' }} />
+    }
 
     // If waitlist is active, show the waitlist page
     if (showWaitlist) {
