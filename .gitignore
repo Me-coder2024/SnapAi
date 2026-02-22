@@ -7,10 +7,11 @@ node_modules/
 dist/
 build/
 
-# Environment variables
+# Environment variables — NEVER commit these
 .env
 .env.local
 .env.*.local
+.env.production
 
 # Editor / OS
 .DS_Store

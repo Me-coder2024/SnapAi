@@ -5,7 +5,7 @@ import WaitingList from './WaitingList'
 import './App.css'
 
 // Initialize Gemini API
-const GEMINI_API_KEY = "AIzaSyCp-qxhPhzKTLBhP9duiDbXYObMoTtxQLo"
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY)
 const model = genAI.getGenerativeModel({
     model: "gemini-2.0-flash",
