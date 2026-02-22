@@ -127,9 +127,7 @@ function AdminPanel() {
     const [tools, setTools] = useState([])
     const [requests, setRequests] = useState([])
     const [waitlist, setWaitlist] = useState([])
-    const [waitlistActive, setWaitlistActive] = useState(
-        () => localStorage.getItem('snapai_waitlist_active') === 'true'
-    )
+    const [waitlistActive, setWaitlistActive] = useState(false)
     const [loading, setLoading] = useState(true)
 
     // Form state
@@ -178,6 +176,12 @@ function AdminPanel() {
                 category: row.category, email: row.email, submittedAt: row.submitted_at
             })))
             setWaitlist(w || [])
+
+            // Load waitlist_active setting
+            const { data: settingsData } = await supabase
+                .from('settings').select('value').eq('key', 'waitlist_active').single()
+            if (settingsData) setWaitlistActive(settingsData.value === 'true')
+
             setLoading(false)
         }
         loadAll()
@@ -282,10 +286,13 @@ function AdminPanel() {
     }
 
     // Toggle waitlist active
-    const toggleWaitlist = () => {
+    const toggleWaitlist = async () => {
         const newVal = !waitlistActive
         setWaitlistActive(newVal)
-        localStorage.setItem('snapai_waitlist_active', newVal.toString())
+        await supabase.from('settings').upsert(
+            { key: 'waitlist_active', value: newVal.toString() },
+            { onConflict: 'key' }
+        )
     }
 
     // Delete waitlist entry

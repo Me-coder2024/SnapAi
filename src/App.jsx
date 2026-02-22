@@ -187,10 +187,8 @@ const DEFAULT_TOOLS = [
 function App() {
     const [filter, setFilter] = useState('All')
 
-    // Waitlist toggle — still a local admin preference
-    const [showWaitlist, setShowWaitlist] = useState(() =>
-        localStorage.getItem('snapai_waitlist_active') === 'true'
-    )
+    // Waitlist toggle — now synced via Supabase settings
+    const [showWaitlist, setShowWaitlist] = useState(false)
 
     // Tools — loaded from Supabase
     const [tools, setTools] = useState(DEFAULT_TOOLS)
@@ -199,9 +197,9 @@ function App() {
     const [reqForm, setReqForm] = useState({ toolName: '', category: 'Productivity', description: '', email: '' })
     const [reqSubmitted, setReqSubmitted] = useState(false)
 
-    // Load tools from Supabase + subscribe to changes
+    // Load tools and settings from Supabase + subscribe to changes
     useEffect(() => {
-        const load = async () => {
+        const loadTools = async () => {
             const { data } = await _sb.from('tools').select('*').order('created_at')
             if (data && data.length > 0) {
                 setTools(data.map(row => ({
@@ -212,19 +210,35 @@ function App() {
                 })))
             }
         }
-        load()
 
-        const channel = _sb
+        const loadSettings = async () => {
+            const { data } = await _sb.from('settings').select('value').eq('key', 'waitlist_active').single()
+            if (data) setShowWaitlist(data.value === 'true')
+        }
+
+        loadTools()
+        loadSettings()
+
+        // Subscribe to tools changes
+        const toolsChannel = _sb
             .channel('app-tools')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'tools' }, load)
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'tools' }, loadTools)
             .subscribe()
 
-        // waitlist toggle key (local admin pref)
-        const handleStorage = () =>
-            setShowWaitlist(localStorage.getItem('snapai_waitlist_active') === 'true')
-        window.addEventListener('storage', handleStorage)
+        // Subscribe to settings changes
+        const settingsChannel = _sb
+            .channel('app-settings')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'settings' }, (payload) => {
+                if (payload.new && payload.new.key === 'waitlist_active') {
+                    setShowWaitlist(payload.new.value === 'true')
+                }
+            })
+            .subscribe()
 
-        return () => { _sb.removeChannel(channel); window.removeEventListener('storage', handleStorage) }
+        return () => {
+            _sb.removeChannel(toolsChannel)
+            _sb.removeChannel(settingsChannel)
+        }
     }, [])
 
     // If waitlist is active, show the waitlist page
