@@ -211,10 +211,7 @@ export default function WaitingList({ onSkip }) {
                             </div>
 
                             <h1 className="wl-heading">
-                                <span className="wl-line1">
-                                    <span className="wl-line1-default">AI Tools.</span>
-                                    <span className="wl-line1-hover">People</span>
-                                </span>
+                                AI Tools.
                                 <br />
                                 <span className="wl-grad">On Demand.</span>
                             </h1>
