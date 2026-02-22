@@ -132,6 +132,15 @@ function AdminPanel() {
     )
     const [loading, setLoading] = useState(true)
 
+    // Form state
+    const [showForm, setShowForm] = useState(false)
+    const [editingTool, setEditingTool] = useState(null)
+    const [form, setForm] = useState({
+        name: '', description: '', status: 'LIVE', icon: '🤖',
+        launchDays: '15 Days', buttonCount: 1, buttons: [{ name: '', link: '' }]
+    })
+    const [activeTab, setActiveTab] = useState('tools')
+
     // ── Load all data from Supabase on mount ──
     useEffect(() => {
         if (!isAuthenticated) return
@@ -291,7 +300,7 @@ function AdminPanel() {
         if (waitlist.length === 0) return
         const header = 'Email,Joined Date\n'
         const rows = waitlist.map(entry => {
-            const date = new Date(entry.joinedAt).toLocaleDateString()
+            const date = new Date(entry.joined_at || entry.joinedAt).toLocaleDateString()
             return `${entry.email},${date}`
         }).join('\n')
         const csv = header + rows
@@ -309,6 +318,17 @@ function AdminPanel() {
     // ══ AUTH GATE ══
     if (!isAuthenticated) {
         return <LoginScreen onLogin={() => setIsAuthenticated(true)} />
+    }
+
+    // ══ LOADING SPINNER ══
+    if (loading) {
+        return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a0f', flexDirection: 'column', gap: 16 }}>
+                <div style={{ width: 40, height: 40, border: '3px solid #7c3aed', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                <p style={{ color: '#a78bfa', fontFamily: 'Inter,sans-serif', fontSize: 14 }}>Loading admin panel...</p>
+                <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+            </div>
+        )
     }
 
     return (

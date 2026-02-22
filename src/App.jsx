@@ -419,24 +419,68 @@ function App() {
                 </div>
             </section>
 
-            <section id="about" className="section about-band">
-                <div className="band-content">
-                    <h2>Built on Demand. Powered by AI.</h2>
-                    <p>We build what YOU actually need — fast.</p>
-                    <div className="stats-row">
+            <section id="about" className="section about-section">
+                {/* Top label */}
+                <div className="about-label">WHO WE ARE</div>
+
+                {/* Main headline */}
+                <h2 className="about-title">
+                    We Ship AI Tools<br />
+                    <span className="about-grad">Every 15 Days.</span>
+                </h2>
+                <p className="about-sub">
+                    SnapAI Labs is a small team obsessed with speed. We take the most-requested AI tool ideas
+                    from our community, build them in 15 days, and ship them — no fluff, no bloat.
+                    Early members get every tool at <strong>20% off</strong>, forever.
+                </p>
+
+                {/* Mission cards */}
+                <div className="about-cards">
+                    {[
+                        { icon: '🎯', title: 'Our Mission', body: 'Make powerful AI tools accessible to everyone — not just big companies with big budgets.' },
+                        { icon: '⚡', title: 'How We Work', body: 'Community votes on what tool to build next. We ship it in 15 days. Repeat. Forever.' },
+                        { icon: '🔒', title: 'Our Promise', body: 'No subscriptions that lock you in. Pay once per tool. Use it forever. Cancel anytime.' },
+                    ].map((c, i) => (
+                        <div key={i} className="about-card glass-morphism">
+                            <div className="about-card-icon">{c.icon}</div>
+                            <h3>{c.title}</h3>
+                            <p>{c.body}</p>
+                        </div>
+                    ))}
+                </div>
+
+                {/* How it works steps */}
+                <div className="about-process">
+                    <h3 className="process-title">How It Works</h3>
+                    <div className="process-steps">
                         {[
-                            { n: '01', l: 'Tools Launched', v: '3+' },
-                            { n: '02', l: 'Requests', v: '50+' },
-                            { n: '03', l: 'Delivery', v: '15 Days' },
-                            { n: '04', l: 'Rating', v: '4.9★' }
-                        ].map((s, idx) => (
-                            <div key={idx} className="stat-card glass-morphism">
-                                <span className="stat-num">{s.n}</span>
-                                <h4>{s.v}</h4>
-                                <p>{s.l}</p>
+                            { step: '01', title: 'You Request', desc: 'Submit the AI tool you need via our request form.' },
+                            { step: '02', title: 'We Build', desc: 'Our team sprints to build it in 15 days — tested and polished.' },
+                            { step: '03', title: 'You Get It', desc: 'Early members get notified first with exclusive 20% off access.' },
+                        ].map((s, i) => (
+                            <div key={i} className="process-step">
+                                <div className="process-num">{s.step}</div>
+                                <div className="process-line" />
+                                <h4>{s.title}</h4>
+                                <p>{s.desc}</p>
                             </div>
                         ))}
                     </div>
+                </div>
+
+                {/* Stats row */}
+                <div className="about-stats">
+                    {[
+                        { v: '3+', l: 'Tools Launched' },
+                        { v: '15 Days', l: 'Per Tool' },
+                        { v: '20%', l: 'Early Member Discount' },
+                        { v: '4.9★', l: 'Community Rating' },
+                    ].map((s, i) => (
+                        <div key={i} className="about-stat glass-morphism">
+                            <h4>{s.v}</h4>
+                            <p>{s.l}</p>
+                        </div>
+                    ))}
                 </div>
             </section>
 
