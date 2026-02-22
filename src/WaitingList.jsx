@@ -207,7 +207,7 @@ export default function WaitingList({ onSkip }) {
                         <>
                             <div className="wl-pill">
                                 <span className="wl-pulse-dot" />
-                                Launching Feb 2025
+                                Launching Mar 2026
                             </div>
 
                             <h1 className="wl-heading">
