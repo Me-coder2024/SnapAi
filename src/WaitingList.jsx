@@ -1,6 +1,7 @@
 import React, { useRef, useMemo, useState, useEffect } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { supabase } from './supabase'
 import './WaitingList.css'
 
 /* ══════════════════════════════════════════════════
@@ -9,7 +10,6 @@ import './WaitingList.css'
 const FloatingSheet = ({ yPos, flipY }) => {
     const meshRef = useRef()
     const dotsRef = useRef()
-
     const COLS = 38
     const ROWS = 22
 
@@ -17,11 +17,7 @@ const FloatingSheet = ({ yPos, flipY }) => {
         const pos = [], idx = []
         for (let i = 0; i < ROWS; i++) {
             for (let j = 0; j < COLS; j++) {
-                pos.push(
-                    (j / (COLS - 1) - 0.5) * 34,
-                    0,
-                    (i / (ROWS - 1) - 0.5) * 14
-                )
+                pos.push((j / (COLS - 1) - 0.5) * 34, 0, (i / (ROWS - 1) - 0.5) * 14)
             }
         }
         for (let i = 0; i < ROWS - 1; i++) {
@@ -39,7 +35,6 @@ const FloatingSheet = ({ yPos, flipY }) => {
         if (!meshRef.current || !dotsRef.current) return
         const t = clock.elapsedTime
         const dir = flipY ? -1 : 1
-
         for (let i = 0; i < ROWS; i++) {
             for (let j = 0; j < COLS; j++) {
                 const k = (i * COLS + j) * 3
@@ -92,13 +87,11 @@ const Scene = () => (
 function AnimCounter({ target, duration = 1800 }) {
     const [val, setVal] = useState(target)
     const raf = useRef(null)
-
     useEffect(() => {
         const start = performance.now()
-        const from = Math.max(0, target - 12)   // count up the last ~12 spots
+        const from = Math.max(0, target - 12)
         const step = (now) => {
             const p = Math.min((now - start) / duration, 1)
-            // Ease out cubic
             const ease = 1 - Math.pow(1 - p, 3)
             setVal(Math.round(from + ease * (target - from)))
             if (p < 1) raf.current = requestAnimationFrame(step)
@@ -106,7 +99,6 @@ function AnimCounter({ target, duration = 1800 }) {
         raf.current = requestAnimationFrame(step)
         return () => cancelAnimationFrame(raf.current)
     }, [target, duration])
-
     return <>{val.toLocaleString()}+</>
 }
 
@@ -119,43 +111,75 @@ export default function WaitingList({ onSkip }) {
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState('')
 
-    // ── Live stats from localStorage ──
-    const getWaitlistCount = () => JSON.parse(localStorage.getItem('snapai_waitlist') || '[]').length
-    const getToolCount = () => JSON.parse(localStorage.getItem('snapai_tools') || '[]').length
-    const getRating = (wlCount) => {
-        // Starts at 4.7, gains 0.01 per 100 joins, max 5.0
-        const bonus = Math.min((wlCount / 100) * 0.01, 0.3)
-        return Math.round((4.7 + bonus) * 10) / 10
-    }
+    // Live data from Supabase
+    const [liveCount, setLiveCount] = useState(0)
+    const [toolCount, setToolCount] = useState(0)
+    const [members, setMembers] = useState([])   // last 5 entries for avatars
+    const [rating, setRating] = useState(4.7)
 
-    const [liveCount, setLiveCount] = useState(getWaitlistCount())
-    const [toolCount, setToolCount] = useState(getToolCount())
-    const [rating, setRating] = useState(getRating(getWaitlistCount()))
+    const calcRating = (count) => Math.min(Math.round((4.7 + Math.min(count / 100, 30) * 0.01) * 10) / 10, 5.0)
 
-    // Real member avatars — last 5 entries from waitlist
-    const getMembers = () => JSON.parse(localStorage.getItem('snapai_waitlist') || '[]').slice(-5)
-    const [members, setMembers] = useState(getMembers())
+    // ── Initial load from Supabase ──
+    useEffect(() => {
+        const load = async () => {
+            // waitlist count + last 5 members
+            const { data: wlData, count: wlCount } = await supabase
+                .from('waitlist')
+                .select('email, joined_at', { count: 'exact' })
+                .order('joined_at', { ascending: false })
+                .limit(5)
+            if (wlData !== null) {
+                setLiveCount(wlCount ?? 0)
+                setMembers(wlData)
+                setRating(calcRating(wlCount ?? 0))
+            }
+            // tool count
+            const { count: tCount } = await supabase
+                .from('tools')
+                .select('*', { count: 'exact', head: true })
+            if (tCount !== null) setToolCount(tCount)
+        }
+        load()
 
-    const handleSubmit = (e) => {
+        // Real-time subscription — new waitlist joins
+        const channel = supabase
+            .channel('waitlist-live')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'waitlist' }, async () => {
+                const { data, count } = await supabase
+                    .from('waitlist')
+                    .select('email, joined_at', { count: 'exact' })
+                    .order('joined_at', { ascending: false })
+                    .limit(5)
+                if (data) {
+                    setLiveCount(count ?? 0)
+                    setMembers(data)
+                    setRating(calcRating(count ?? 0))
+                }
+            })
+            .subscribe()
+
+        return () => supabase.removeChannel(channel)
+    }, [])
+
+    const handleSubmit = async (e) => {
         e.preventDefault()
         if (!email.trim() || isSubmitting) return
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid email.'); return }
         setError('')
         setIsSubmitting(true)
-        const existing = JSON.parse(localStorage.getItem('snapai_waitlist') || '[]')
-        if (!existing.some(en => en.email.toLowerCase() === email.toLowerCase()))
-            existing.push({ email: email.trim(), joinedAt: new Date().toISOString() })
-        localStorage.setItem('snapai_waitlist', JSON.stringify(existing))
-        setTimeout(() => {
-            const newWl = existing.length
-            setLiveCount(newWl)
-            setToolCount(getToolCount())
-            setRating(getRating(newWl))
-            setMembers(getMembers())   // refresh avatars
-            setSubmitted(true)
+        const { error: dbError } = await supabase
+            .from('waitlist')
+            .upsert({ email: email.trim().toLowerCase() }, { onConflict: 'email' })
+        if (dbError) {
+            setError('Something went wrong. Please try again.')
             setIsSubmitting(false)
-        }, 700)
+            return
+        }
+        setSubmitted(true)
+        setIsSubmitting(false)
     }
+
+    const AVATAR_COLORS = ['#7c3aed', '#8b5cf6', '#a78bfa', '#6d28d9', '#4c1d95']
 
     return (
         <div className="wl-page">
@@ -220,24 +244,20 @@ export default function WaitingList({ onSkip }) {
                             <div className="wl-social-proof">
                                 {members.length > 0 && (
                                     <div className="wl-avatars">
-                                        {members.map((m, i) => {
-                                            const COLORS = ['#7c3aed', '#8b5cf6', '#a78bfa', '#6d28d9', '#4c1d95']
-                                            const letter = m.email.charAt(0).toUpperCase()
-                                            return (
-                                                <div
-                                                    key={i}
-                                                    className="wl-av"
-                                                    title={m.email}
-                                                    style={{
-                                                        background: COLORS[i % COLORS.length],
-                                                        marginLeft: i ? -9 : 0,
-                                                        zIndex: members.length - i
-                                                    }}
-                                                >
-                                                    {letter}
-                                                </div>
-                                            )
-                                        })}
+                                        {members.map((m, i) => (
+                                            <div
+                                                key={i}
+                                                className="wl-av"
+                                                title={m.email}
+                                                style={{
+                                                    background: AVATAR_COLORS[i % AVATAR_COLORS.length],
+                                                    marginLeft: i ? -9 : 0,
+                                                    zIndex: members.length - i
+                                                }}
+                                            >
+                                                {m.email.charAt(0).toUpperCase()}
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
                                 <span>
@@ -259,11 +279,7 @@ export default function WaitingList({ onSkip }) {
 
                 <div className="wl-bottom-bar">
                     <div className="wl-stat">
-                        <span>
-                            {toolCount > 0
-                                ? <AnimCounter target={toolCount} duration={1200} />
-                                : '0+'}
-                        </span>
+                        <span>{toolCount > 0 ? <AnimCounter target={toolCount} duration={1200} /> : '0+'}</span>
                         Tools built
                     </div>
                     <div className="wl-stat-div" />

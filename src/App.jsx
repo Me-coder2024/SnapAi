@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+import { supabase as _sb } from './supabase'
 import HeroScene3D from './HeroScene3D'
 import WaitingList from './WaitingList'
 import './App.css'
@@ -182,42 +183,48 @@ const DEFAULT_TOOLS = [
     { id: 3, name: 'AI Email Writer', description: 'Perfect business emails instantly', status: 'COMING SOON', icon: '✉️', buttons: [{ name: 'Notify Me', link: '' }], launchDays: '30 Days', createdAt: new Date().toISOString() }
 ]
 
+
 function App() {
     const [filter, setFilter] = useState('All')
 
-    // Waitlist toggle — check if waitlist is active
-    const [showWaitlist, setShowWaitlist] = useState(() => {
-        return localStorage.getItem('snapai_waitlist_active') === 'true'
-    })
+    // Waitlist toggle — still a local admin preference
+    const [showWaitlist, setShowWaitlist] = useState(() =>
+        localStorage.getItem('snapai_waitlist_active') === 'true'
+    )
 
-    // Load tools from localStorage (synced with admin panel)
-    const [tools, setTools] = useState(() => {
-        const saved = localStorage.getItem('snapai_tools')
-        return saved ? JSON.parse(saved) : DEFAULT_TOOLS
-    })
+    // Tools — loaded from Supabase
+    const [tools, setTools] = useState(DEFAULT_TOOLS)
 
     // Request form state
     const [reqForm, setReqForm] = useState({ toolName: '', category: 'Productivity', description: '', email: '' })
     const [reqSubmitted, setReqSubmitted] = useState(false)
 
-    // Listen for waitlist toggle changes from admin
+    // Load tools from Supabase + subscribe to changes
     useEffect(() => {
-        const handleStorage = () => {
-            const active = localStorage.getItem('snapai_waitlist_active') === 'true'
-            setShowWaitlist(active)
+        const load = async () => {
+            const { data } = await _sb.from('tools').select('*').order('created_at')
+            if (data && data.length > 0) {
+                setTools(data.map(row => ({
+                    id: row.id, name: row.name, description: row.description,
+                    status: row.status, icon: row.icon,
+                    launchDays: row.launch_days, buttons: row.buttons || [],
+                    createdAt: row.created_at
+                })))
+            }
         }
-        window.addEventListener('storage', handleStorage)
-        return () => window.removeEventListener('storage', handleStorage)
-    }, [])
+        load()
 
-    // Listen for localStorage changes from admin panel
-    useEffect(() => {
-        const handleStorage = () => {
-            const saved = localStorage.getItem('snapai_tools')
-            if (saved) setTools(JSON.parse(saved))
-        }
+        const channel = _sb
+            .channel('app-tools')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'tools' }, load)
+            .subscribe()
+
+        // waitlist toggle key (local admin pref)
+        const handleStorage = () =>
+            setShowWaitlist(localStorage.getItem('snapai_waitlist_active') === 'true')
         window.addEventListener('storage', handleStorage)
-        return () => window.removeEventListener('storage', handleStorage)
+
+        return () => { _sb.removeChannel(channel); window.removeEventListener('storage', handleStorage) }
     }, [])
 
     // If waitlist is active, show the waitlist page
@@ -225,11 +232,15 @@ function App() {
         return <WaitingList onSkip={() => setShowWaitlist(false)} />
     }
 
-    const handleRequestSubmit = () => {
+    const handleRequestSubmit = async () => {
         if (!reqForm.toolName.trim() || !reqForm.email.trim()) return
-        const existing = JSON.parse(localStorage.getItem('snapai_requests') || '[]')
-        existing.push({ ...reqForm, submittedAt: new Date().toISOString() })
-        localStorage.setItem('snapai_requests', JSON.stringify(existing))
+        await _sb.from('requests').insert([{
+            tool_name: reqForm.toolName,
+            description: reqForm.description,
+            category: reqForm.category,
+            email: reqForm.email,
+            submitted_at: new Date().toISOString()
+        }])
         setReqForm({ toolName: '', category: 'Productivity', description: '', email: '' })
         setReqSubmitted(true)
         setTimeout(() => setReqSubmitted(false), 3000)

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { supabase } from './supabase'
 import './AdminPanel.css'
 
 // Auth credentials
@@ -118,62 +119,71 @@ const LoginScreen = ({ onLogin }) => {
    ═══════════════════════════════════════ */
 function AdminPanel() {
     // Auth state
-    const [isAuthenticated, setIsAuthenticated] = useState(() => {
-        return sessionStorage.getItem('snapai_admin_auth') === 'true'
-    })
+    const [isAuthenticated, setIsAuthenticated] = useState(() =>
+        sessionStorage.getItem('snapai_admin_auth') === 'true'
+    )
 
-    // Tools state
-    const [tools, setTools] = useState(() => {
-        const saved = localStorage.getItem('snapai_tools')
-        return saved ? JSON.parse(saved) : DEFAULT_TOOLS
-    })
+    // Data state
+    const [tools, setTools] = useState([])
+    const [requests, setRequests] = useState([])
+    const [waitlist, setWaitlist] = useState([])
+    const [waitlistActive, setWaitlistActive] = useState(
+        () => localStorage.getItem('snapai_waitlist_active') === 'true'
+    )
+    const [loading, setLoading] = useState(true)
 
-    // Requests state
-    const [requests, setRequests] = useState(() => {
-        const saved = localStorage.getItem('snapai_requests')
-        return saved ? JSON.parse(saved) : []
-    })
-
-    // Waitlist state
-    const [waitlist, setWaitlist] = useState(() => {
-        const saved = localStorage.getItem('snapai_waitlist')
-        return saved ? JSON.parse(saved) : []
-    })
-    const [waitlistActive, setWaitlistActive] = useState(() => {
-        return localStorage.getItem('snapai_waitlist_active') === 'true'
-    })
-
-    // Form state
-    const [showForm, setShowForm] = useState(false)
-    const [editingTool, setEditingTool] = useState(null)
-    const [form, setForm] = useState({
-        name: '',
-        description: '',
-        status: 'LIVE',
-        icon: '🤖',
-        launchDays: '15 Days',
-        buttonCount: 1,
-        buttons: [{ name: '', link: '' }]
-    })
-
-    // Active tab
-    const [activeTab, setActiveTab] = useState('tools')
-
-    // Persist tools to localStorage
+    // ── Load all data from Supabase on mount ──
     useEffect(() => {
-        localStorage.setItem('snapai_tools', JSON.stringify(tools))
-    }, [tools])
-
-    // Sync waitlist from localStorage (in case user submits from frontend)
-    useEffect(() => {
-        const interval = setInterval(() => {
-            const saved = JSON.parse(localStorage.getItem('snapai_waitlist') || '[]')
-            if (JSON.stringify(saved) !== JSON.stringify(waitlist)) {
-                setWaitlist(saved)
+        if (!isAuthenticated) return
+        const loadAll = async () => {
+            setLoading(true)
+            const [{ data: t }, { data: r }, { data: w }] = await Promise.all([
+                supabase.from('tools').select('*').order('created_at'),
+                supabase.from('requests').select('*').order('submitted_at', { ascending: false }),
+                supabase.from('waitlist').select('*').order('joined_at', { ascending: false }),
+            ])
+            // If no tools yet in DB, seed with defaults
+            if (t !== null && t.length === 0) {
+                await supabase.from('tools').insert(
+                    DEFAULT_TOOLS.map(({ id, ...rest }) => ({
+                        id,
+                        name: rest.name,
+                        description: rest.description,
+                        status: rest.status,
+                        icon: rest.icon,
+                        launch_days: rest.launchDays || '15 Days',
+                        buttons: rest.buttons,
+                    }))
+                )
+                setTools(DEFAULT_TOOLS)
+            } else {
+                setTools((t || []).map(row => ({
+                    id: row.id, name: row.name, description: row.description,
+                    status: row.status, icon: row.icon,
+                    launchDays: row.launch_days, buttons: row.buttons || [],
+                    createdAt: row.created_at
+                })))
             }
-        }, 2000)
-        return () => clearInterval(interval)
-    }, [waitlist])
+            setRequests((r || []).map(row => ({
+                toolName: row.tool_name, description: row.description,
+                category: row.category, email: row.email, submittedAt: row.submitted_at
+            })))
+            setWaitlist(w || [])
+            setLoading(false)
+        }
+        loadAll()
+
+        // Real-time: new waitlist joins
+        const channel = supabase
+            .channel('admin-waitlist')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'waitlist' }, async () => {
+                const { data } = await supabase.from('waitlist').select('*').order('joined_at', { ascending: false })
+                if (data) setWaitlist(data)
+            })
+            .subscribe()
+
+        return () => supabase.removeChannel(channel)
+    }, [isAuthenticated])
 
     // Reset form
     const resetForm = () => {
@@ -202,29 +212,25 @@ function AdminPanel() {
     }
 
     // Add or update tool
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault()
         if (!form.name.trim()) return
-
         const toolData = {
-            name: form.name,
-            description: form.description,
-            status: form.status,
-            icon: form.icon,
-            launchDays: form.launchDays,
-            buttons: form.buttons
+            name: form.name, description: form.description,
+            status: form.status, icon: form.icon,
+            launch_days: form.launchDays, buttons: form.buttons,
         }
-
         if (editingTool) {
+            await supabase.from('tools').update(toolData).eq('id', editingTool.id)
             setTools(prev => prev.map(t =>
-                t.id === editingTool.id ? { ...t, ...toolData } : t
+                t.id === editingTool.id
+                    ? { ...t, ...form, launchDays: form.launchDays }
+                    : t
             ))
         } else {
-            setTools(prev => [...prev, {
-                id: Date.now(),
-                ...toolData,
-                createdAt: new Date().toISOString()
-            }])
+            const newId = Date.now()
+            await supabase.from('tools').insert([{ id: newId, ...toolData, created_at: new Date().toISOString() }])
+            setTools(prev => [...prev, { id: newId, ...form, launchDays: form.launchDays, createdAt: new Date().toISOString() }])
         }
         resetForm()
     }
@@ -246,17 +252,18 @@ function AdminPanel() {
     }
 
     // Delete tool
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
         if (confirm('Delete this tool?')) {
+            await supabase.from('tools').delete().eq('id', id)
             setTools(prev => prev.filter(t => t.id !== id))
         }
     }
 
     // Delete request
-    const handleDeleteRequest = (idx) => {
-        const updated = requests.filter((_, i) => i !== idx)
-        setRequests(updated)
-        localStorage.setItem('snapai_requests', JSON.stringify(updated))
+    const handleDeleteRequest = async (idx) => {
+        const req = requests[idx]
+        if (req?.id) await supabase.from('requests').delete().eq('id', req.id)
+        setRequests(prev => prev.filter((_, i) => i !== idx))
     }
 
     // Logout
@@ -273,10 +280,10 @@ function AdminPanel() {
     }
 
     // Delete waitlist entry
-    const handleDeleteWaitlistEntry = (idx) => {
-        const updated = waitlist.filter((_, i) => i !== idx)
-        setWaitlist(updated)
-        localStorage.setItem('snapai_waitlist', JSON.stringify(updated))
+    const handleDeleteWaitlistEntry = async (idx) => {
+        const entry = waitlist[idx]
+        if (entry?.id) await supabase.from('waitlist').delete().eq('id', entry.id)
+        setWaitlist(prev => prev.filter((_, i) => i !== idx))
     }
 
     // Export waitlist to CSV
